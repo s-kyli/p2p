@@ -112,7 +112,6 @@ func (server *Server) processRecieve(msg Message, peers map[string]net.Conn) {
 		fmt.Println("Recieved unsolicited message from:", msg.from, ":", string(msg.payload))
 
 	}
-
 }
 
 func (server *Server) processInput(text string, peers map[string]net.Conn) {
