@@ -28,21 +28,24 @@ func NewServer() *Server {
 	}
 }
 
+// will use redis rpush or set
 func (server *Server) recieve(w http.ResponseWriter, r *http.Request) {
 
 }
 
+// will use redis get
 func (server *Server) fetch(w http.ResponseWriter, r *http.Request) {
 
 }
 
+// just getting used to redis client for now
 func main() {
 	//ok
 	// server := NewServer()
 
 	os.Setenv("REDIS_ADDR", "localhost:6379")
 	os.Setenv("REDIS_PASSWORD", "")
-	contextBackground := context.Background()
+	ctx := context.Background()
 
 	redisClient := redis.NewClient(&redis.Options{
 		Addr:     os.Getenv("REDIS_ADDR"),
@@ -50,7 +53,7 @@ func main() {
 		DB:       0,
 	})
 
-	ping, err := redisClient.Ping(contextBackground).Result()
+	ping, err := redisClient.Ping(ctx).Result()
 	if err != nil {
 		fmt.Println(err.Error())
 		return
@@ -58,45 +61,87 @@ func main() {
 
 	fmt.Println(ping)
 
-	jsonString, err := json.Marshal(Message{
+	jsonString1, err := json.Marshal(Message{
 		From:    "Alice",
 		To:      "Jason",
 		Payload: []byte(`{"text": "JASON!! We should hack the pentagon!"}`),
 	})
 
-	// var msg Message
+	if err != nil {
+		fmt.Println("Failed to marshal:", err.Error())
+	}
+
+	jsonString2, err := json.Marshal(Message{
+		From:    "Alice",
+		To:      "Jason",
+		Payload: []byte(`{"text": "Pleaseee? Think about the arguments we can win on war thunder!"}`),
+	})
 
 	if err != nil {
 		fmt.Println("Failed to marshal:", err.Error())
 	}
-	// redisClient.Append(contextBackground, "Alice", "Hi")
-	err = redisClient.Set(contextBackground, "Alice", jsonString, 0).Err()
-	if err != nil {
-		fmt.Println("Failed to set value in the redis instance: &s", err.Error())
-		return
-	}
 
-	val, err := redisClient.Get(contextBackground, "Alice").Result()
+	jsonString3, err := json.Marshal(Message{
+		From:    "Alice",
+		To:      "Jason",
+		Payload: []byte(`{"text": "Fine! I'll do it myself then"}`),
+	})
 
 	if err != nil {
-		fmt.Println("failed to get value from get redis", err.Error())
-		return
+		fmt.Println("Failed to marshal:", err.Error())
 	}
 
-	fmt.Println("marshalled:", string(val))
-
-	var msg Message
-	err1 := json.Unmarshal(jsonString, &msg)
+	err1 := redisClient.RPush(ctx, "Alice", jsonString1).Err()
 	if err1 != nil {
-		return
+		fmt.Println("Failed to append to redis:", err1.Error())
 	}
 
-	fmt.Println("unmarshalled:")
-	fmt.Println("Message sender:", msg.From)
-	fmt.Println("Message recipient:", msg.To)
-	fmt.Println(string(msg.Payload))
-	// fmt.Println(val.From)
-	// fmt.Println(val.To)
+	err2 := redisClient.RPush(ctx, "Alice", jsonString2).Err()
+	if err2 != nil {
+		fmt.Println("Failed to append to redis:", err2.Error())
+	}
+
+	err3 := redisClient.RPush(ctx, "Alice", jsonString3).Err()
+	if err3 != nil {
+		fmt.Println("Failed to append to redis:", err3.Error())
+	}
+
+	var messages []Message
+
+	length := redisClient.LLen(ctx, "Alice")
+	for length.Val() > 0 {
+		var msg Message
+
+		rPopResult, err := redisClient.LPop(ctx, "Alice").Result()
+
+		if err != nil {
+			panic(err)
+		}
+
+		err4 := json.Unmarshal([]byte(rPopResult), &msg)
+		if err4 != nil {
+			panic(err4)
+		}
+
+		messages = append(messages, msg)
+		length = redisClient.LLen(ctx, "Alice")
+	}
+
+	for _, msg := range messages {
+		fmt.Println("Recieved message:")
+		fmt.Println("Sender:", msg.From)
+		fmt.Println("Receiver:", msg.To)
+		var payloadData map[string]interface{}
+
+		err5 := json.Unmarshal(msg.Payload, &payloadData)
+		if err5 != nil {
+			fmt.Println("error marshalling msg payload")
+		}
+
+		fmt.Println("text:", payloadData["text"])
+		fmt.Println()
+
+	}
 
 	// var payloadData map[string]interface{}
 	// err2 := json.Unmarshal(msg.Payload, &payloadData)
