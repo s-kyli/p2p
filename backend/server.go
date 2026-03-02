@@ -28,12 +28,12 @@ func NewServer() *Server {
 	}
 }
 
-// will use redis rpush or set
+// will use redis RPUSH
 func (server *Server) recieve(w http.ResponseWriter, r *http.Request) {
 
 }
 
-// will use redis get
+// will use redis LPOP
 func (server *Server) fetch(w http.ResponseWriter, r *http.Request) {
 
 }
