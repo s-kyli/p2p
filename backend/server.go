@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"crypto/ed25519"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net"
 	"os"
+	"time"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -22,13 +25,29 @@ type Server struct {
 	ctx         context.Context
 }
 
-func verifyIdentity(requesterID string, timestamp int64, signature string) bool {
+func verifyIdentity(requesterHex string, timestamp int64, signatureHex string) bool {
 
-	if signature == requesterID+"-Secret" {
-		return true
+	publicKeyDecoded, err := hex.DecodeString(requesterHex)
+	if err != nil || len(publicKeyDecoded) != ed25519.PublicKeySize {
+		return false
 	}
 
-	return false
+	// stop replay attacks
+	if time.Now().Unix()-timestamp > 30 {
+		return false
+	}
+	if timestamp-time.Now().Unix() > 5 {
+		return false
+	}
+
+	publicKey := ed25519.PublicKey(publicKeyDecoded)
+	signatureDecoded, err := hex.DecodeString(signatureHex)
+	if err != nil {
+		return false
+	}
+	//[]byte(fmt.Sprintf("fetch:%s:%d", jasonEdPubHex, timestamp)) <--matches this signed from client
+	message := []byte(fmt.Sprintf("fetch:%s:%d", requesterHex, timestamp))
+	return ed25519.Verify(publicKey, message, signatureDecoded)
 }
 
 func NewServer() *Server {
