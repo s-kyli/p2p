@@ -1,77 +1,20 @@
-package main
+package backend
 
 import (
-	"crypto/aes"
-	"crypto/cipher"
 	"crypto/ecdh"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"testing"
 	"time"
 
+	"onion-chat-app/client"
+
 	"github.com/stretchr/testify/assert"
 )
-
-func encryptPayload(sharedSecret []byte, plaintext string) ([]byte, error) {
-	block, err := aes.NewCipher(sharedSecret)
-	if err != nil {
-		return nil, err
-	}
-	aesGCM, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, err
-	}
-	nonce := make([]byte, aesGCM.NonceSize())
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return nil, err
-	}
-	ciphertext := aesGCM.Seal(nonce, nonce, []byte(plaintext), nil)
-	return ciphertext, nil
-}
-
-func decryptPayload(sharedSecret []byte, ciphertext []byte) ([]byte, error) {
-	block, err := aes.NewCipher(sharedSecret)
-	if err != nil {
-		return nil, err
-	}
-	aesGCM, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, err
-	}
-	nonceSize := aesGCM.NonceSize()
-	if len(ciphertext) < nonceSize {
-		return nil, fmt.Errorf("ciphertext too short")
-	}
-	nonce, actualCiphertext := ciphertext[:nonceSize], ciphertext[nonceSize:]
-	plaintextBytes, err := aesGCM.Open(nil, nonce, actualCiphertext, nil)
-	if err != nil {
-		return nil, err
-	}
-	return plaintextBytes, nil
-}
-
-func makeJsonByte(from string, to string, payload []byte) ([]byte, error) {
-	jsonByte, err := json.Marshal(Message{
-		From:    from,
-		To:      to,
-		Payload: payload,
-	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	return jsonByte, err
-}
-
-func getRedisKey(publicKey ed25519.PublicKey) string {
-	return hex.EncodeToString(publicKey)
-}
 
 func TestReceiveAndFetch(t *testing.T) {
 	os.Setenv("REDIS_ADDR", "localhost:6379")
@@ -110,10 +53,10 @@ func TestReceiveAndFetch(t *testing.T) {
 
 	var jsonBytes [][]byte // jsonbytes is what will be "sent" to the server from alice
 	for _, msgText := range rawMessages {
-		ciphertext, err := encryptPayload(aliceSharedSecret, msgText)
+		ciphertext, err := client.EncryptPayload(aliceSharedSecret, msgText)
 		assert.NoError(t, err, "encryption should not fail")
 
-		jsonByte, err := makeJsonByte(aliceXPubHex, jasonEdPubHex, ciphertext)
+		jsonByte, err := client.MakeJsonByte(aliceXPubHex, jasonEdPubHex, ciphertext)
 		assert.NoError(t, err, "makeJsonByte should not throw an error")
 		jsonBytes = append(jsonBytes, jsonByte)
 	}
@@ -149,7 +92,7 @@ func TestReceiveAndFetch(t *testing.T) {
 	for i, jsonByte := range jsonBytes {
 		err := json.Unmarshal(jsonByte, &messages[i])
 		assert.NoError(t, err, "Unmarshal should not throw an error")
-		messages[i].Payload, err = decryptPayload(jasonSharedSecret, messages[i].Payload)
+		messages[i].Payload, err = client.DecryptPayload(jasonSharedSecret, messages[i].Payload)
 		assert.NoError(t, err, "decryptPayload should not throw an error")
 		assert.Equal(t, rawMessages[i], string(messages[i].Payload), "raw messages and decrypted messages must match")
 	}

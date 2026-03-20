@@ -1,14 +1,15 @@
-package main
+package backend
 
 import (
 	"context"
-	"crypto/ed25519"
-	"encoding/hex"
+
 	"encoding/json"
 	"fmt"
+	"log"
 	"net"
 	"os"
-	"time"
+
+	"net/http"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -19,35 +20,16 @@ type Message struct {
 	Payload []byte `json:"Payload"`
 }
 
+type FetchRequestBody struct {
+	RequesterPubKey string `json:"RequesterPubKey"`
+	Timestamp       int64  `json:"Timestamp"`
+	Signature       string `json:"Signature"`
+}
+
 type Server struct {
 	ln          net.Listener
 	redisClient *redis.Client
 	ctx         context.Context
-}
-
-func verifyIdentity(requesterHex string, timestamp int64, signatureHex string) bool {
-
-	publicKeyDecoded, err := hex.DecodeString(requesterHex)
-	if err != nil || len(publicKeyDecoded) != ed25519.PublicKeySize {
-		return false
-	}
-
-	// stop replay attacks
-	if time.Now().Unix()-timestamp > 30 {
-		return false
-	}
-	if timestamp-time.Now().Unix() > 5 {
-		return false
-	}
-
-	publicKey := ed25519.PublicKey(publicKeyDecoded)
-	signatureDecoded, err := hex.DecodeString(signatureHex)
-	if err != nil {
-		return false
-	}
-	//[]byte(fmt.Sprintf("fetch:%s:%d", jasonEdPubHex, timestamp)) <--matches this signed from client
-	message := []byte(fmt.Sprintf("fetch:%s:%d", requesterHex, timestamp))
-	return ed25519.Verify(publicKey, message, signatureDecoded)
 }
 
 func NewServer() *Server {
@@ -61,59 +43,71 @@ func NewServer() *Server {
 	}
 }
 
-// w http.ResponseWriter, r *http.Request
-// will use redis RPUSH
-// caches incoming messages for when the receiver wants to get the message.
-func (server *Server) recieveAndHold(recipientPubKey string, jsonString []byte) error {
-	return server.redisClient.RPush(server.ctx, recipientPubKey, jsonString).Err()
+func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var msg Message
+
+	err := json.NewDecoder(r.Body).Decode(&msg)
+	if err != nil {
+		http.Error(w, "Something is wrong with your JSON", http.StatusBadRequest)
+		return
+	}
+
+	jsonBytes, _ := json.Marshal(msg)
+	err = s.recieveAndHold(msg.To, jsonBytes)
+	if err != nil {
+		http.Error(w, "Failed to store message. recieveAndHold failed", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("Message queued successfully"))
+
 }
 
-// will use redis LPOPs
-// will verify identity of the fetcher, (obviously not like this in final product)
-// then return the messages
-
-func (server *Server) fetchAndClear(requesterPubKey string, timestamp int64, signature string) ([]Message, error) {
-
-	if !verifyIdentity(requesterPubKey, timestamp, signature) {
-		return nil, fmt.Errorf("authentication failed. invalid signature.")
+func (s *Server) handleFetch(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
 	}
 
-	results, err := server.redisClient.LRange(server.ctx, requesterPubKey, 0, -1).Result()
+	var fetchBody FetchRequestBody
 
+	err := json.NewDecoder(r.Body).Decode(&fetchBody)
 	if err != nil {
-		return nil, err
+		http.Error(w, "Something is wrong with your JSON", http.StatusBadRequest)
+		return
 	}
 
-	if len(results) == 0 {
-		return []Message{}, nil
-	}
-
-	err = server.redisClient.Del(server.ctx, requesterPubKey).Err()
+	messages, err := s.fetchAndClear(fetchBody.RequesterPubKey, fetchBody.Timestamp, fetchBody.Signature)
 	if err != nil {
-		return nil, err
-	}
-
-	var messages []Message
-
-	for _, res := range results {
-		var msg Message
-
-		err := json.Unmarshal([]byte(res), &msg)
-		if err != nil {
-			return nil, err
+		if err.Error() == "authentication failed. invalid signature." {
+			http.Error(w, "failed to verify identity", http.StatusBadRequest)
+		} else {
+			http.Error(w, "failed to store message", http.StatusBadRequest)
 		}
-		messages = append(messages, msg)
+		return
 	}
 
-	return messages, nil
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+
+	err = json.NewEncoder(w).Encode(messages)
+	if err != nil {
+		log.Printf("jsonify error: %v", err)
+	}
+
 }
 
 // to start: redis-server --daemonize yes.
 // to terminate: redis-cli shutdown
 // to ping: redis-cli ping
 // just getting used to redis client for now
-func main() {
-
+func RunServer(args []string) {
 	//INITIALIZING NEW SERVER
 
 	os.Setenv("REDIS_ADDR", "localhost:6379")
@@ -128,22 +122,14 @@ func main() {
 		return
 	}
 
+	http.HandleFunc("/send", server.handleSend)
+	http.HandleFunc("/fetch", server.handleFetch)
+
+	log.Println("Server listening on :8080")
+	err = http.ListenAndServe(":8080", nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	fmt.Println(ping)
-
-	// adding http requests later
-
-	// var payloadData map[string]interface{}
-	// err2 := json.Unmarshal(msg.Payload, &payloadData)
-	// if err2 != nil {
-	// 	return
-	// }
-
-	// fmt.Println(payloadData["text"])
-
-	// fmt.Println("Starting server.go")
-	// http.HandleFunc("/msg", server.recieve)
-	// http.HandleFunc("/fetch", server.fetch)
-
-	// http.ListenAndServe(":8080", nil)
-
 }
