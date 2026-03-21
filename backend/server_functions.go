@@ -53,6 +53,7 @@ func (server *Server) fetchAndClear(requesterPubKey string, timestamp int64, sig
 	results, err := server.redisClient.LRange(server.ctx, requesterPubKey, 0, -1).Result()
 
 	if err != nil {
+		fmt.Println("Error getting messages from redis:", err)
 		return nil, err
 	}
 
@@ -62,6 +63,7 @@ func (server *Server) fetchAndClear(requesterPubKey string, timestamp int64, sig
 
 	err = server.redisClient.Del(server.ctx, requesterPubKey).Err()
 	if err != nil {
+		fmt.Println("Error deleting messages:", err)
 		return nil, err
 	}
 
@@ -72,6 +74,7 @@ func (server *Server) fetchAndClear(requesterPubKey string, timestamp int64, sig
 
 		err := json.Unmarshal([]byte(res), &msg)
 		if err != nil {
+			fmt.Println("Error unmarshalling:", err)
 			return nil, err
 		}
 		messages = append(messages, msg)

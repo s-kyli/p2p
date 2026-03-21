@@ -7,14 +7,17 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
 	"strings"
+	"time"
 )
 
 type Message struct {
 	From    string `json:"From"`
+	FromX   string `json:"FromX"`
 	To      string `json:"To"`
 	Payload []byte `json:"Payload"`
 }
@@ -33,8 +36,9 @@ type Client struct {
 	publicXKey     *ecdh.PublicKey
 	publicXKeyHex  string
 	privateXKey    *ecdh.PrivateKey   // ermm doesnnt look so secure, changge this later
-	contacts       map[string]Contact // Key is the alias of contact
-	serverUrl      string
+	contacts       map[string]Contact // Key is the public ed25519 key of contact
+	sendServerUrl  string
+	fetchServerUrl string
 }
 
 func NewClient(listenAddr string) *Client {
@@ -52,12 +56,18 @@ func NewClient(listenAddr string) *Client {
 		publicXKey:     pubXKey,
 		publicXKeyHex:  hex.EncodeToString(pubXKey.Bytes()),
 		privateXKey:    privXKey,
-		contacts:       make(map[string]Contact), // key is alias of contact
-		serverUrl:      "http://localhost:8080/send",
+		contacts:       make(map[string]Contact), // key is public ed25519 key of contact
+		sendServerUrl:  "http://localhost:8080/send",
+		fetchServerUrl: "http://localhost:8080/fetch",
 	}
 }
 
-func (c *Client) addContact(alias string, publicXKeyHex string, publicEdKeyHex string) {
+func (c *Client) addContact(publicXKeyHex string, publicEdKeyHex string, alias string) {
+
+	_, exist := c.contacts[publicEdKeyHex]
+	if exist {
+		fmt.Println(publicEdKeyHex, "is already a contact. Overriding...")
+	}
 
 	decodedPublicXKey, err := hex.DecodeString((publicXKeyHex))
 	if err != nil {
@@ -77,7 +87,7 @@ func (c *Client) addContact(alias string, publicXKeyHex string, publicEdKeyHex s
 		return
 	}
 
-	c.contacts[alias] = Contact{
+	c.contacts[publicEdKeyHex] = Contact{
 		publicXKeyHex:  publicXKeyHex,
 		publicEdKeyHex: publicEdKeyHex,
 		alias:          alias,
@@ -93,14 +103,14 @@ func (c *Client) sendMessage(contact Contact, msgText string) {
 		return
 	}
 
-	jsonByte, err := MakeJsonByte(c.publicXKeyHex, contact.publicEdKeyHex, ciphertext)
+	jsonByte, err := MakeJsonByte(c.publicEdKeyHex, c.publicXKeyHex, contact.publicEdKeyHex, ciphertext)
 	if err != nil {
 		fmt.Println("makeJsonByte error:", err)
 		return
 	}
 
 	// in the future, communication with the server will only be via Tor.
-	response, err := http.Post(c.serverUrl, "application/json", bytes.NewBuffer(jsonByte))
+	response, err := http.Post(c.sendServerUrl, "application/json", bytes.NewBuffer(jsonByte))
 	if err != nil {
 		fmt.Println("HTTP POST failed:", err)
 		return
@@ -117,6 +127,74 @@ func (c *Client) sendMessage(contact Contact, msgText string) {
 
 }
 
+func (c *Client) fetchMessages() {
+
+	timestamp := time.Now().Unix()
+
+	authPayload := []byte(fmt.Sprintf("fetch:%s:%d", c.publicEdKeyHex, timestamp))
+	validSignature := ed25519.Sign(c.privateEdKey, authPayload)
+	validSignatureHex := hex.EncodeToString(validSignature)
+
+	requestBody := map[string]interface{}{
+		"RequesterPubKey": c.publicEdKeyHex,
+		"Timestamp":       timestamp,
+		"Signature":       validSignatureHex,
+	}
+
+	jsonBody, err := json.Marshal(requestBody)
+	if err != nil {
+		fmt.Println("json.Marshal failed:", err)
+		return
+	}
+
+	response, err := http.Post(c.fetchServerUrl, "application/json", bytes.NewBuffer(jsonBody))
+	if err != nil {
+		fmt.Println("HTTP POST failed:", err)
+		return
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode != http.StatusOK {
+		fmt.Println("Server rejected fetch. Status:", response.Status)
+		return
+	}
+
+	var messages []Message
+	err = json.NewDecoder(response.Body).Decode(&messages)
+	if err != nil {
+		fmt.Println("Failed to decode messages from server:", err)
+		return
+	}
+
+	if len(messages) == 0 {
+		fmt.Println("No messages to get")
+		return
+	}
+
+	for i := range messages {
+		from := messages[i].From
+
+		contact, exist := c.contacts[from]
+		if exist {
+			fmt.Println("Received message from:", from, "aka:", contact.alias)
+		} else {
+			fmt.Println("Received new message from:", from)
+			fromX := messages[i].FromX
+			c.addContact(fromX, from, "Unknown")
+			contact, _ = c.contacts[from]
+		}
+
+		newPayload, err := DecryptPayload(contact.sharedSecret, messages[i].Payload)
+		if err != nil {
+			fmt.Println("Error decrypting payload:", err)
+			continue
+		}
+		messages[i].Payload = newPayload
+		fmt.Println("Message contents:", string(newPayload))
+	}
+
+}
+
 func (c *Client) processInput(text string) {
 	text = strings.TrimSpace(text)
 
@@ -125,7 +203,7 @@ func (c *Client) processInput(text string) {
 		if len(parts) == 4 {
 			c.addContact(parts[1], parts[2], parts[3])
 		} else {
-			fmt.Println("usage: /add-contact [alias (string)] [public X25519 key (hex string)] [public  ED25519 key (hex string)]")
+			fmt.Println("usage: /add-contact [public X25519 key (hex string)] [public  ED25519 key (hex string)] [alias (string)]")
 		}
 	} else if strings.HasPrefix(text, "/get-contacts") {
 		for _, contact := range c.contacts {
@@ -148,6 +226,8 @@ func (c *Client) processInput(text string) {
 			}
 
 		}
+	} else if strings.HasPrefix(text, "/fetch") {
+		c.fetchMessages()
 	} else if strings.HasPrefix(text, "/disconnect") {
 		parts := strings.Split(text, " ")
 		if len(parts) == 2 {
@@ -180,8 +260,8 @@ func RunClient(args []string) {
 	fmt.Println(client.publicEdKeyHex)
 
 	fmt.Println("\nCOMMANDS:")
-	fmt.Println("/add-contact [alias] [public X25519 key] [public ED25519 key]")
-	fmt.Println("/chat [contact alias] [message]")
+	fmt.Println("/add-contact [public X25519 key] [public ED25519 key] [alias]")
+	fmt.Println("/chat [public ED25519 key] [message]")
 	fmt.Println("/get-contacts")
 
 	scanner := bufio.NewScanner(os.Stdin)

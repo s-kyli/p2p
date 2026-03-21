@@ -40,6 +40,9 @@ func TestReceiveAndFetch(t *testing.T) {
 	aliceXPub := aliceXPriv.PublicKey()
 	aliceXPubHex := hex.EncodeToString(aliceXPub.Bytes())
 
+	aliceEdPub, _, _ := ed25519.GenerateKey(rand.Reader)
+	aliceEdPubHex := hex.EncodeToString(aliceEdPub)
+
 	aliceSharedSecret, _ := aliceXPriv.ECDH(jasonXPub)
 	jasonSharedSecret, _ := jasonXPriv.ECDH(aliceXPub)
 
@@ -56,7 +59,7 @@ func TestReceiveAndFetch(t *testing.T) {
 		ciphertext, err := client.EncryptPayload(aliceSharedSecret, msgText)
 		assert.NoError(t, err, "encryption should not fail")
 
-		jsonByte, err := client.MakeJsonByte(aliceXPubHex, jasonEdPubHex, ciphertext)
+		jsonByte, err := client.MakeJsonByte(aliceEdPubHex, aliceXPubHex, jasonEdPubHex, ciphertext)
 		assert.NoError(t, err, "makeJsonByte should not throw an error")
 		jsonBytes = append(jsonBytes, jsonByte)
 	}

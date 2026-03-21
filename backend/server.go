@@ -16,6 +16,7 @@ import (
 
 type Message struct {
 	From    string `json:"From"`
+	FromX   string `json:"FromX"`
 	To      string `json:"To"`
 	Payload []byte `json:"Payload"`
 }
@@ -73,6 +74,7 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleFetch(w http.ResponseWriter, r *http.Request) {
+
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -89,9 +91,11 @@ func (s *Server) handleFetch(w http.ResponseWriter, r *http.Request) {
 	messages, err := s.fetchAndClear(fetchBody.RequesterPubKey, fetchBody.Timestamp, fetchBody.Signature)
 	if err != nil {
 		if err.Error() == "authentication failed. invalid signature." {
+			fmt.Println("failed to verify identity")
 			http.Error(w, "failed to verify identity", http.StatusBadRequest)
 		} else {
-			http.Error(w, "failed to store message", http.StatusBadRequest)
+			fmt.Println("fetchandClear error")
+			http.Error(w, "fetchAndClear error", http.StatusBadRequest)
 		}
 		return
 	}

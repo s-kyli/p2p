@@ -49,9 +49,10 @@ func DecryptPayload(sharedSecret []byte, ciphertext []byte) ([]byte, error) {
 	return plaintextBytes, nil
 }
 
-func MakeJsonByte(from string, to string, payload []byte) ([]byte, error) {
+func MakeJsonByte(from string, fromX, to string, payload []byte) ([]byte, error) {
 	jsonByte, err := json.Marshal(Message{
 		From:    from,
+		FromX:   fromX,
 		To:      to,
 		Payload: payload,
 	})
