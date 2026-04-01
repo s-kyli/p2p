@@ -5,9 +5,11 @@ import (
 
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"os"
+	"strconv"
 
 	"net/http"
 
@@ -50,16 +52,40 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var msg Message
+	// proof of work captcha
+	nonceStr := r.Header.Get("PoWNonce")
+	if nonceStr == "" {
+		http.Error(w, "Missing PoW nonce header", http.StatusBadRequest)
+		return
+	}
 
-	err := json.NewDecoder(r.Body).Decode(&msg)
+	nonce, err := strconv.Atoi(nonceStr)
+	if err != nil {
+		http.Error(w, "Invalid PoW nonce format", http.StatusBadRequest)
+		return
+	}
+
+	rawBody, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Failed to read request body", http.StatusInternalServerError)
+		return
+	}
+	defer r.Body.Close()
+
+	difficulty := 2
+	if !verifyPoW(rawBody, nonce, difficulty) {
+		http.Error(w, "Proof of work verification failed", http.StatusForbidden)
+		return
+	}
+
+	var msg Message
+	err = json.Unmarshal(rawBody, &msg)
 	if err != nil {
 		http.Error(w, "Something is wrong with your JSON", http.StatusBadRequest)
 		return
 	}
 
-	jsonBytes, _ := json.Marshal(msg)
-	err = s.recieveAndHold(msg.To, jsonBytes)
+	err = s.recieveAndHold(msg.To, rawBody)
 	if err != nil {
 		http.Error(w, "Failed to store message. recieveAndHold failed", http.StatusInternalServerError)
 		return

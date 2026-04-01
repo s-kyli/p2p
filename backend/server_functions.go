@@ -2,11 +2,25 @@ package backend
 
 import (
 	"crypto/ed25519"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"time"
 )
+
+func verifyPoW(message []byte, nonce int, difficulty int) bool {
+	data := append(message, []byte(strconv.Itoa(nonce))...)
+	hash := sha256.Sum256(data)
+
+	for i := 0; i < difficulty; i++ {
+		if hash[i] != 0 {
+			return false
+		}
+	}
+	return true
+}
 
 func verifyIdentity(requesterHex string, timestamp int64, signatureHex string) bool {
 

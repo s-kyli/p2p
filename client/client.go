@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -66,7 +67,7 @@ func (c *Client) addContact(publicXKeyHex string, publicEdKeyHex string, alias s
 
 	_, exist := c.contacts[publicEdKeyHex]
 	if exist {
-		fmt.Println(publicEdKeyHex, "is already a contact. Overriding...")
+		fmt.Println(publicEdKeyHex, "is already a contact, replacing..")
 	}
 
 	decodedPublicXKey, err := hex.DecodeString((publicXKeyHex))
@@ -109,13 +110,31 @@ func (c *Client) sendMessage(contact Contact, msgText string) {
 		return
 	}
 
+	difficulty := 2
+	nonce := GeneratePoW(jsonByte, difficulty)
+
 	// in the future, communication with the server will only be via Tor.
-	response, err := http.Post(c.sendServerUrl, "application/json", bytes.NewBuffer(jsonByte))
+	// response, err := http.Post(c.sendServerUrl, "application/json", bytes.NewBuffer(jsonByte))
+	// if err != nil {
+	// 	fmt.Println("HTTP POST failed:", err)
+	// 	return
+	// }
+
+	request, err := http.NewRequest("POST", c.sendServerUrl, bytes.NewBuffer(jsonByte))
+	if err != nil {
+		fmt.Println("Failed to create HTTP request:", err)
+		return
+	}
+
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("PoWNonce", strconv.Itoa(nonce))
+
+	client := &http.Client{}
+	response, err := client.Do(request)
 	if err != nil {
 		fmt.Println("HTTP POST failed:", err)
 		return
 	}
-
 	defer response.Body.Close()
 
 	if response.StatusCode != http.StatusOK {

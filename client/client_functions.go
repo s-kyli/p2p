@@ -5,10 +5,12 @@ import (
 	"crypto/cipher"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
+	"strconv"
 )
 
 func EncryptPayload(sharedSecret []byte, plaintext string) ([]byte, error) {
@@ -62,6 +64,28 @@ func MakeJsonByte(from string, fromX, to string, payload []byte) ([]byte, error)
 	}
 
 	return jsonByte, err
+}
+
+// proof of work to prevent/mitigate DDoS attacks, using sha256
+func GeneratePoW(data []byte, difficulty int) int {
+	nonce := 0
+	for {
+		hashInput := append(data, []byte(strconv.Itoa(nonce))...)
+		hash := sha256.Sum256(hashInput)
+
+		isValid := true
+		for i := 0; i < difficulty; i++ {
+			if hash[i] != 0 {
+				isValid = false
+				break
+			}
+		}
+
+		if isValid {
+			return nonce
+		}
+		nonce++
+	}
 }
 
 func getRedisKey(publicKey ed25519.PublicKey) string {
