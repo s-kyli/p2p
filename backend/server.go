@@ -139,7 +139,9 @@ func (s *Server) handleFetch(w http.ResponseWriter, r *http.Request) {
 // to start: redis-server --daemonize yes.
 // to terminate: redis-cli shutdown
 // to ping: redis-cli ping
-// just getting used to redis client for now
+// to get stop listening on :8080,
+// run sudo lsof -i:8080
+// then run kill -9 <PID>
 func RunServer(args []string) {
 	//INITIALIZING NEW SERVER
 
