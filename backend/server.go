@@ -2,6 +2,7 @@ package backend
 
 import (
 	"context"
+	"time"
 
 	"encoding/json"
 	"fmt"
@@ -14,6 +15,12 @@ import (
 	"net/http"
 
 	"github.com/redis/go-redis/v9"
+)
+
+const (
+	MaxPayloadSize   = 4096
+	MaxMessagesInbox = 50
+	TTLDuration      = 24 * time.Hour
 )
 
 type Message struct {
@@ -65,9 +72,11 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, MaxPayloadSize)
+
 	rawBody, err := io.ReadAll(r.Body)
 	if err != nil {
-		http.Error(w, "Failed to read request body", http.StatusInternalServerError)
+		http.Error(w, "Payload too large OR failed to read payload", http.StatusRequestEntityTooLarge)
 		return
 	}
 	defer r.Body.Close()
@@ -152,6 +161,7 @@ func RunServer(args []string) {
 
 	// TESTING REDIS PING
 	ping, err := server.redisClient.Ping(server.ctx).Result()
+
 	if err != nil {
 		fmt.Println(err.Error())
 		return

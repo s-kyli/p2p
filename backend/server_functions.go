@@ -51,7 +51,19 @@ func verifyIdentity(requesterHex string, timestamp int64, signatureHex string) b
 // will use redis RPUSH
 // caches incoming messages for when the receiver wants to get the message.
 func (server *Server) recieveAndHold(recipientPubKey string, jsonString []byte) error {
-	return server.redisClient.RPush(server.ctx, recipientPubKey, jsonString).Err()
+
+	err := server.redisClient.RPush(server.ctx, recipientPubKey, jsonString).Err()
+	if err != nil {
+		return err
+	}
+
+	err = server.redisClient.Expire(server.ctx, recipientPubKey, TTLDuration).Err()
+	if err != nil {
+		return err
+	}
+
+	return nil
+
 }
 
 // will use redis LPOPs
@@ -85,7 +97,6 @@ func (server *Server) fetchAndClear(requesterPubKey string, timestamp int64, sig
 
 	for _, res := range results {
 		var msg Message
-
 		err := json.Unmarshal([]byte(res), &msg)
 		if err != nil {
 			fmt.Println("Error unmarshalling:", err)
