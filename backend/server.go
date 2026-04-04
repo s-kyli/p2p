@@ -94,6 +94,17 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	inboxSize, err := s.getInboxSize(msg.To)
+	if err != nil {
+		http.Error(w, "Redis database error. Cannot get verify inbox size.", http.StatusInternalServerError)
+		return
+	}
+
+	if inboxSize >= MaxMessagesInbox {
+		http.Error(w, "Recipient inbox is full", http.StatusConflict)
+		return
+	}
+
 	err = s.recieveAndHold(msg.To, rawBody)
 	if err != nil {
 		http.Error(w, "Failed to store message. recieveAndHold failed", http.StatusInternalServerError)

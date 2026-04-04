@@ -47,6 +47,16 @@ func verifyIdentity(requesterHex string, timestamp int64, signatureHex string) b
 	return ed25519.Verify(publicKey, message, signatureDecoded)
 }
 
+func (server *Server) getInboxSize(pubEdKey string) (int64, error) {
+	length, err := server.redisClient.LLen(server.ctx, pubEdKey).Result()
+
+	if err != nil {
+		return 0, err
+	}
+
+	return length, nil
+}
+
 // w http.ResponseWriter, r *http.Request
 // will use redis RPUSH
 // caches incoming messages for when the receiver wants to get the message.
