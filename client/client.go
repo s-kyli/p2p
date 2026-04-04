@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"strconv"
@@ -137,8 +138,11 @@ func (c *Client) sendMessage(contact Contact, msgText string) {
 	}
 	defer response.Body.Close()
 
+	body, _ := io.ReadAll(response.Body)
+	msg := string(body)
+
 	if response.StatusCode != http.StatusOK {
-		fmt.Println("Server rejected message send. Status:", response.Status)
+		fmt.Printf("Server rejected message send. Error: %s (status: %s)\n", msg, response.Status)
 		return
 	}
 
