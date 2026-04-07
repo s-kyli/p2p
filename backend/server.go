@@ -81,20 +81,22 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 	}
 	defer r.Body.Close()
 
-	difficulty := 2
-	if !verifyPoW(rawBody, nonce, difficulty) {
-		http.Error(w, "Proof of work verification failed", http.StatusForbidden)
-		return
-	}
-
 	var msg Message
 	err = json.Unmarshal(rawBody, &msg)
 	if err != nil {
 		http.Error(w, "Something is wrong with your JSON", http.StatusBadRequest)
 		return
 	}
-
 	inboxSize, err := s.getInboxSize(msg.To)
+	difficulty := getRequiredDifficulty(inboxSize)
+
+	if !verifyPoW(rawBody, nonce, difficulty) {
+
+		w.Header().Set("X-Required-Difficulty", strconv.Itoa(difficulty))
+		http.Error(w, "Proof of work verification failed or too low", http.StatusPreconditionFailed)
+		return
+	}
+
 	if err != nil {
 		http.Error(w, "Redis database error. Cannot get verify inbox size.", http.StatusInternalServerError)
 		return

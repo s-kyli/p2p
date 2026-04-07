@@ -22,6 +22,19 @@ func verifyPoW(message []byte, nonce int, difficulty int) bool {
 	return true
 }
 
+func getRequiredDifficulty(inboxSize int64) int {
+	if inboxSize < 10 {
+		return 2
+	}
+	if inboxSize < 30 {
+		return 3
+	}
+	if inboxSize < 45 {
+		return 4
+	}
+	return 5
+}
+
 func verifyIdentity(requesterHex string, timestamp int64, signatureHex string) bool {
 
 	publicKeyDecoded, err := hex.DecodeString(requesterHex)

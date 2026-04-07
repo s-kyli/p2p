@@ -112,41 +112,51 @@ func (c *Client) sendMessage(contact Contact, msgText string) {
 	}
 
 	difficulty := 2
-	nonce := GeneratePoW(jsonByte, difficulty)
+	retryLimit := 3
 
-	// in the future, communication with the server will only be via Tor.
-	// response, err := http.Post(c.sendServerUrl, "application/json", bytes.NewBuffer(jsonByte))
-	// if err != nil {
-	// 	fmt.Println("HTTP POST failed:", err)
-	// 	return
-	// }
+	for attempt := 0; attempt < retryLimit; attempt++ {
+		nonce := GeneratePoW(jsonByte, difficulty)
 
-	request, err := http.NewRequest("POST", c.sendServerUrl, bytes.NewBuffer(jsonByte))
-	if err != nil {
-		fmt.Println("Failed to create HTTP request:", err)
-		return
-	}
+		request, err := http.NewRequest("POST", c.sendServerUrl, bytes.NewBuffer(jsonByte))
+		if err != nil {
+			fmt.Println("Failed to create HTTP request:", err)
+			return
+		}
 
-	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("PoWNonce", strconv.Itoa(nonce))
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("PoWNonce", strconv.Itoa(nonce))
 
-	client := &http.Client{}
-	response, err := client.Do(request)
-	if err != nil {
-		fmt.Println("HTTP POST failed:", err)
-		return
-	}
-	defer response.Body.Close()
+		client := &http.Client{}
+		response, err := client.Do(request)
+		if err != nil {
+			fmt.Println("HTTP POST failed:", err)
+			return
+		}
 
-	body, _ := io.ReadAll(response.Body)
-	msg := string(body)
+		if response.StatusCode == http.StatusOK {
+			fmt.Println("Message send to server successfully")
+			response.Body.Close()
+			return
+		}
 
-	if response.StatusCode != http.StatusOK {
+		if response.StatusCode == http.StatusPreconditionFailed {
+			newDifficulty, err := strconv.Atoi(response.Header.Get("X-Required-Difficulty"))
+			if err == nil {
+				fmt.Printf("Server requires higher difficulty: %d\n", newDifficulty)
+				response.Body.Close()
+				difficulty = newDifficulty
+				continue
+			}
+		}
+
+		body, _ := io.ReadAll(response.Body)
+		msg := string(body)
+
 		fmt.Printf("Server rejected message send. Error: %s (status: %s)\n", msg, response.Status)
+		defer response.Body.Close()
 		return
-	}
 
-	fmt.Println("Message send to server successfully")
+	}
 
 }
 
