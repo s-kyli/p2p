@@ -114,6 +114,7 @@ func (c *Client) sendMessage(contact Contact, msgText string) {
 	difficulty := 2
 	retryLimit := 3
 
+	// starts dynamic PoW
 	for attempt := 0; attempt < retryLimit; attempt++ {
 		nonce := GeneratePoW(jsonByte, difficulty)
 
